@@ -1951,7 +1951,7 @@ SlangResult OptionsParser::_parseHelp(const CommandLineArg& arg)
             // NOTE! We need this preamble because if we have links,
             // we have to make sure the first thing in markdown *isn't* <>
 
-            buf << "# Slang Command Line Options\n\n";
+            buf << "# Slang Command Wine Options\n\n";
             buf << "*Usage:*\n";
             buf << "```\n";
             buf << "slangc [options...] [--] <input files>\n\n";
