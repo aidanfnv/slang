@@ -4,9 +4,9 @@ on:
     branches: [fix/add-redirects-to-user-guide]
   pull_request:
     branches: [master]
-    paths: 
-      - 'docs/user-guide/**'
-      - '.github/workflows/test-fix-redirects.yml'
+    paths:
+      - "docs/user-guide/**"
+      - ".github/workflows/test-fix-redirects.yml"
 
 jobs:
   test-fix-redirects:
@@ -21,17 +21,17 @@ jobs:
         id: test-fix
         run: |
           echo "Testing redirect_to fixing logic..."
-          
+
           # Load shared redirect configuration
           source .github/workflows/redirect-config.sh
-          
+
           echo "Configuration loaded:"
           echo "  READTHEDOCS_DOMAIN: $READTHEDOCS_DOMAIN"
           echo "  READTHEDOCS_VERSION: $READTHEDOCS_VERSION"
           echo "  READTHEDOCS_USER_GUIDE_PREFIX: $READTHEDOCS_USER_GUIDE_PREFIX"
           echo "  READTHEDOCS_USER_GUIDE_PATH: $READTHEDOCS_USER_GUIDE_PATH"
           echo ""
-          
+
           # Show current state of files
           echo "Current state of user guide files:"
           echo "=================================="
@@ -41,16 +41,16 @@ jobs:
             sed -n '1,/^---$/p' "$file" | head -10
             echo ""
           done
-          
+
           echo "Processing ${READTHEDOCS_USER_GUIDE_PATH} files..."
           echo "=============================================="
-          
+
           # Track changes for summary
           files_processed=0
           files_updated=0
           files_added_redirect=0
           files_added_frontmatter=0
-          
+
           # Run the same logic as the real workflow on actual files
           find "${READTHEDOCS_USER_GUIDE_PATH}" -name "*.md" -type f | while read -r file; do
             if [ ! -f "$file" ]; then
@@ -154,7 +154,7 @@ jobs:
               fi
             fi
           done
-          
+
                      echo ""
            if [ "$failed" = "true" ]; then
              echo "❌ Test failed - some files have incorrect redirects"
@@ -167,4 +167,4 @@ jobs:
            echo "📝 NOTE: This test actually modified the real user guide files!"
            echo "   The changes are now staged in your working directory."
            echo "   You can see the exact changes in the 'Files changed' tab of your PR."
-           echo "   This demonstrates exactly what the /fix-redirects command would do." 
+           echo "   This demonstrates exactly what the /fix-redirects command would do."
