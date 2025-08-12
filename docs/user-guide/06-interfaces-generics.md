@@ -1000,7 +1000,7 @@ A common use of variadic generics is to define `printf`:
 ```csharp
 void printf<each T>(String message, expand each T args) { ... }
 ```
-
+<!-- tag: expand -->
 The type syntax `expand each T` represents a expansion of the type pack `T`. Therefore, the type of `args` parameter is an expanded type pack.
 The `expand` expression can be thought of a map operation of a type pack. For example,
 give type pack `T = int, float, bool`, `expand each T` evaluates to the type pack of the same types, i.e. `expand each T ==> int, float, bool`.
