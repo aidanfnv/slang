@@ -213,7 +213,8 @@ Compile-Time For Statement
 A _compile-time for statement_ is used as an alternative to preprocessor techniques for loop unrolling.
 It looks like:
 
-```hlsl
+<!-- The "hlsl" lexer does not work here -->
+```
 $for( <name> in Range(<initial-value>, <upper-bound>)) <body statement>
 ```
 

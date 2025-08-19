@@ -25,8 +25,8 @@ The `.meta.slang` files look largely like Slang source files, but their contents
 
 As an example, to produce an an array with values 0 to 9 we could write...
 
-<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
-```hlsl
+<!-- There is no "slang" lexer, and "hlsl" does not work here either -->
+```
 
 // Slang code
 ${{{{
@@ -143,8 +143,8 @@ Used to specify the IR opcode associated with a type. The IR opcode is listed as
 
 As an example from the core module
 
-<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
-```hlsl
+<!-- There is no "slang" lexer, and "hlsl" does not work here either -->
+```
 __magic_type(HLSLByteAddressBufferType)
 __intrinsic_type($(kIROp_HLSLByteAddressBufferType))
 struct ByteAddressBuffer
