@@ -303,7 +303,7 @@ const int a = 2;
 
 Translates to:
 
-```metal
+```csharp
 constant int fc_a_0 [[function_constant(7)]];
 constant int a_0 = is_function_constant_defined(fc_a_0) ? fc_a_0 : 2;
 ```
