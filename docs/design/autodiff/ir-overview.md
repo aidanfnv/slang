@@ -643,7 +643,8 @@ for (int i = 0; i < 10; i++)
 ```
 
 After AD passes, this results in the following code:
-```C
+<!-- This fails to be parsed by the "C" lexer -->
+```
 
 //// Primal context pass.
 
