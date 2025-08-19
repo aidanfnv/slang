@@ -72,7 +72,8 @@ This means that `-r` is *NOT* enough to be able access the functionality of the 
 
 For example, in "module.slang"
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 struct Thing
 {
     int a; 
@@ -87,7 +88,8 @@ int foo(Thing thing)
 
 In the source that uses this module
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 // This is fragile - needs match the definition in "module.slang"
 struct Thing
 {
@@ -115,7 +117,8 @@ void computeMain(uint3 dispatchThreadID : SV_DispatchThreadID)
 
 If the type `Thing` is only used opaquely then it would only be necessary to declare that it exists. For example in "module-opaque.slang"
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 struct Thing
 {
     int a; 
@@ -135,7 +138,8 @@ int foo(Thing thing)
 
 In the source that uses this module
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 // We can just declare Thing exists, as its usage is opaque.
 struct Thing;
 int foo(Thing thing);
