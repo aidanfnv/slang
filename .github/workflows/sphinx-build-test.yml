@@ -11,8 +11,8 @@ jobs:
       - name: Checkout shader-slang.github.io main branch
         uses: actions/checkout@v4
         with:
-          repository: shader-slang/shader-slang.github.io
-          ref: main
+          repository: aidanfnv/shader-slang.github.io
+          ref: fix/sphinx-warnings
           path: docs-site
 
       - name: Checkout slang PR branch as submodule
