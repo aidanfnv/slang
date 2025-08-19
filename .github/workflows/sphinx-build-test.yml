@@ -25,8 +25,8 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'
+          python-version: "3.10"
+          cache: "pip"
 
       - name: Install dependencies
         run: |
@@ -38,7 +38,7 @@ jobs:
           cd docs-site/docs
           # Run Sphinx build to catch issues
           # -D build_toctree=True enables toctree processing to verify all docs are included
-          python -m sphinx -b html . _build/html
+          python -m sphinx -W -b html . _build/html
 
       - name: Check for broken links to external sites
         run: |
