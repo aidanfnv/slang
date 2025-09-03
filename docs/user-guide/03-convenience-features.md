@@ -454,7 +454,8 @@ specialized shader variant when it is not used by the shader.
 
 For example, a common use case is to define the vertex shader output / fragment shader input:
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 interface IVertex
 {
     property float3 position{get;}
@@ -493,7 +494,8 @@ struct Vertex<bool hasNormal, bool hasColor> : IVertex
 In this example, `Vertex` type is parameterized on `hasNormal` and `hasColor`. If `hasNormal` is false, the `m_normal` field will be eliminated in the target code, allowing a specialized vertex shader to declare minimum output fields. For example, a vertex shader
 can be defined as follows:
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 [shader("vertex")]
 Vertex<hasNormal, hasColor> vertMain<bool hasNormal, bool hasColor>(VertexIn inputVertex)
 {
@@ -604,7 +606,8 @@ to access the global descriptor heap or resource array in order to obtain the ac
 are not opaque handles, `DescriptorHandle<T>` maps to `T` and will have the same size and alignment defined by the target.
 
 `DescriptorHandle<T>` is declared as:
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 struct DescriptorHandle<T> where T:IOpaqueDescriptor {}
 ```
 where `IOpaqueDescriptor` is an interface implemented by all resource types, including textures,
@@ -614,7 +617,8 @@ You may also write `Texture2D.Handle` as a short-hand of `DescriptorHandle<Textu
 
 `DescriptorHandle<T>` supports `operator *`, `operator ->`, and can implicitly convert to `T`, for example:
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 uniform StructuredBuffer<DescriptorHandle<Texture2D>> textures;
 uniform int textureIndex;
 
@@ -683,7 +687,8 @@ Default behavior assigns binding-indicies based on descriptor types:
 Users can override the default behavior of convering from bindless handle to resource handle, by providing a
 `getDescriptorFromHandle` in user code. For example:
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 // All texture and buffer handles are defined in descriptor set 100.
 [vk::binding(0, 100)]
 __DynamicResource<__DynamicResourceKind.General> resourceHandles[];
@@ -713,7 +718,8 @@ Think about providing `getDescriptorFromHandle` as a way to override `operator->
 
 The `IOpaqueDescriptor` interface is defined as:
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 interface IOpaqueDescriptor
 {
     /// The kind of the descriptor.
@@ -726,7 +732,8 @@ The user can call `defaultGetDescriptorFromHandle` function from their implement
 `getDescriptorFromHandle` to dispatch to the default behavior.
 
 Additionally, `defaultGetDescriptorFromHandle()` takes an optional argument whose type is `constexpr BindlessDescriptorOptions`. This parameter allows to specify alternative standard presets for how bindless-indexes are assigned. Note that this is currently only relevant to SPIRV:
- ```slang
+ <!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 public enum BindlessDescriptorOptions
 {
     None = 0,      /// Bind assuming regular binding model rules.
@@ -765,7 +772,8 @@ public enum BindlessDescriptorOptions
 The `kind` and `descriptorAccess` constants allows user code to fetch resources from different locations depending on the type and access of the resource being requested. The `DescriptorKind` and
 `DescriptorAccess` enums are defined as:
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 enum DescriptorKind
 {
     Unknown, /// Unknown descriptor kind.
@@ -791,7 +799,8 @@ enum DescriptorAccess
 By default, the value of a `DescriptorHandle<T>` object is assumed to be dynamically uniform across all
 execution threads. If this is not the case, the user is required to mark the `DescriptorHandle` as `nonuniform`
 *immediately* before dereferencing it:
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 void test(DescriptorHandle<Texture2D> t)
 {
     nonuniform(t)->Sample(...);

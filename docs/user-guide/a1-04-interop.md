@@ -111,7 +111,8 @@ The strings in `__requirePrelude` are deduplicated: the same prelude string will
 
 ## Managing Cross-Platform Code
 If you are defining an intrinsic function that maps to multiple targets in different ways, you can use `__target_switch` construct to manage the target-specific definitions. For example, here is a snippet from the Slang core module that defines `getRealtimeClock`:
-```hlsl
+<!-- The "hlsl" lexer does not work here -->
+```
 [__requiresNVAPI]
 __glsl_extension(GL_EXT_shader_realtime_clock)
 uint2 getRealtimeClock()

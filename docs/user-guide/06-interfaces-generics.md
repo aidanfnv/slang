@@ -48,7 +48,8 @@ In this case, the definition of `MyType` must satisfy the requirements from both
 
 Interface methods can have a default implementation, which will be used if a conforming type doesn't provide an overriding implementation. For example:
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 interface IFoo
 {
     int getVal() { return 0; }
@@ -60,7 +61,8 @@ struct MyType : IFoo {}
 
 A concrete type that provides its overriding implementation to an interface method requirement that has a default implementation must be explicitly marked as 'override'. For example:
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 struct MyType2 : IFoo
 {
     // Explicitly mark `getVal` as `override` is needed

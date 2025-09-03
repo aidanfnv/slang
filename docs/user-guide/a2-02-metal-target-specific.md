@@ -133,7 +133,8 @@ the translation of matrix operations to maintain correct semantics:
 
 Mesh shaders can be targeted using the following types and syntax. The same as task/mesh shaders generally in Slang.
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 [outputtopology("triangle")]
 [numthreads(12, 1, 1)]
 void meshMain(
@@ -162,7 +163,8 @@ using namespace metal;
 `ParameterBlock` values are translated into _Argument Buffers_ potentially
 containing nested resources. For example, this Slang code...
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 struct MyParameters
 {
     int x;
@@ -195,7 +197,8 @@ struct MyParameters
 When targeting Metal, top-level nested struct parameters are automatically
 flattened. For example:
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 struct NestedStruct
 {
     float2 uv;
@@ -224,7 +227,8 @@ struct InputStruct
 Non-struct return values from entry points are automatically wrapped in a
 struct with appropriate semantics. For example:
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 float4 main() : SV_Target
 {
     return float4(1,2,3,4);
@@ -255,7 +259,8 @@ automatically performs the following conversions:
 
 For example:
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 RWTexture2D<float2> tex;
 tex[coord] = float2(1,2);  // Automatically expanded to float4(1,2,0,0)
 ```
@@ -299,7 +304,7 @@ const int a = 2;
 
 Translates to:
 
-```metal
+```csharp
 constant int fc_a_0 [[function_constant(7)]];
 constant int a_0 = is_function_constant_defined(fc_a_0) ? fc_a_0 : 2;
 ```
