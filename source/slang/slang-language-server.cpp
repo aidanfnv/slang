@@ -105,6 +105,31 @@ String uriToCanonicalPath(const String& uri)
     return canonnicalPath;
 }
 
+// Helper function to create a URI from a file path, ensuring the path is canonical (absolute).
+// This is required by the LSP specification which mandates that all URIs must be absolute.
+URI filePathToURI(const UnownedStringSlice& path)
+{
+    String canonicalPath;
+    // Try to get the canonical (absolute) path
+    if (SLANG_SUCCEEDED(Path::getCanonical(String(path), canonicalPath)))
+    {
+        return URI::fromLocalFilePath(canonicalPath.getUnownedSlice());
+    }
+    // If canonicalization fails (e.g., file doesn't exist), check if the path is already absolute
+    // and use it as-is, otherwise try to make it absolute by combining with current directory
+    if (Path::isAbsolute(path))
+    {
+        return URI::fromLocalFilePath(path);
+    }
+    else
+    {
+        // As a fallback, combine with current directory
+        String currentDir = Path::getCurrentPath();
+        String absolutePath = Path::combine(currentDir, String(path));
+        return URI::fromLocalFilePath(absolutePath.getUnownedSlice());
+    }
+}
+
 SlangResult LanguageServer::parseNextMessage()
 {
     const JSONRPCMessageType msgType = m_connection->getMessageType();
@@ -1112,8 +1137,7 @@ LanguageServerResult<List<LanguageServerProtocol::Location>> LanguageServerCore:
             Location result;
             if (File::exists(loc.loc.pathInfo.foundPath))
             {
-                result.uri =
-                    URI::fromLocalFilePath(loc.loc.pathInfo.foundPath.getUnownedSlice()).uri;
+                result.uri = filePathToURI(loc.loc.pathInfo.foundPath.getUnownedSlice()).uri;
             }
             else if (loc.loc.pathInfo.getName() == "core" || loc.loc.pathInfo.getName() == "glsl")
             {
@@ -2514,7 +2538,7 @@ LanguageServerResult<List<Location>> LanguageServerCore::tryGotoMacroDefinition(
     List<LanguageServerProtocol::Location> results;
     results.setCount(1);
     auto& result = results[0];
-    result.uri = URI::fromLocalFilePath(humaneLoc.pathInfo.foundPath.getUnownedSlice()).uri;
+    result.uri = filePathToURI(humaneLoc.pathInfo.foundPath.getUnownedSlice()).uri;
     Index outLine, outCol;
     doc->oneBasedUTF8LocToZeroBasedUTF16Loc(humaneLoc.line, humaneLoc.column, outLine, outCol);
     result.range.start.line = (int)outLine;
@@ -2541,7 +2565,7 @@ LanguageServerResult<List<Location>> LanguageServerCore::tryGotoFileInclude(
             List<LanguageServerProtocol::Location> results;
             results.setCount(1);
             auto& result = results[0];
-            result.uri = URI::fromLocalFilePath(include.path.getUnownedSlice()).uri;
+            result.uri = filePathToURI(include.path.getUnownedSlice()).uri;
             result.range.start.line = 0;
             result.range.start.character = 0;
             result.range.end.line = 0;
