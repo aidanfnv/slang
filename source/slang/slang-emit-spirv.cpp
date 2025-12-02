@@ -1397,6 +1397,31 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
         return m_NonSemanticDebugPrintfExtInst;
     }
 
+    /// Dictionary for dynamically imported extension instruction sets
+    Dictionary<UnownedStringSlice, SpvInst*> m_extInstImports;
+
+    /// Get or import an extension instruction set by name
+    SpvInst* getOrImportExtInstSet(const UnownedStringSlice& setName)
+    {
+        SpvInst* result = nullptr;
+        if (m_extInstImports.tryGetValue(setName, result))
+            return result;
+
+        // NonSemantic extension sets require SPV_KHR_non_semantic_info
+        if (setName.startsWith(UnownedStringSlice::fromLiteral("NonSemantic.")))
+        {
+            ensureExtensionDeclaration(
+                UnownedStringSlice::fromLiteral("SPV_KHR_non_semantic_info"));
+        }
+
+        result = emitOpExtInstImport(
+            getSection(SpvLogicalSectionID::ExtIntInstImports),
+            nullptr,
+            setName);
+        m_extInstImports[setName] = result;
+        return result;
+    }
+
     static SpvStorageClass addressSpaceToStorageClass(AddressSpace addrSpace)
     {
         SLANG_EXHAUSTIVE_SWITCH_BEGIN
@@ -2384,8 +2409,7 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
                 getSection(SpvLogicalSectionID::ConstantsAndTypes),
                 nullptr,
                 nullptr,
-                as<IRDebugFunction>(inst),
-                nullptr);
+                as<IRDebugFunction>(inst));
         case kIROp_DebugInlinedAt:
             return emitDebugInlinedAt(
                 getSection(SpvLogicalSectionID::ConstantsAndTypes),
@@ -3562,7 +3586,6 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
                     spvBlock,
                     spvFunc,
                     irDebugFunc,
-                    irFunc->getDataType(),
                     irFunc);
             }
             if (funcDebugScope)
@@ -3970,7 +3993,10 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
         getNaturalSizeAndAlignment(this->m_targetRequest->getOptionSet(), varType, &sizeAlignment);
         if (sizeAlignment.size != IRSizeAndAlignment::kIndeterminateSize)
         {
+            requireVariableBufferCapabilityIfNeeded(varType);
+
             auto debugVarPtrType = builder.getPtrType(varType, AddressSpace::Function);
+
             auto actualHelperVar =
                 emitOpVariable(parent, debugVar, debugVarPtrType, SpvStorageClassFunction);
             maybeEmitName(actualHelperVar, debugVar, toSlice("_dbgvar_"));
@@ -4170,6 +4196,9 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
         case kIROp_PtrCast:
         case kIROp_BitCast:
             result = emitOpBitcast(parent, inst, inst->getDataType(), inst->getOperand(0));
+            break;
+        case kIROp_CopyLogical:
+            result = emitCopyLogical(parent, as<IRCopyLogical>(inst));
             break;
         case kIROp_BitfieldExtract:
             result = emitBitfieldExtract(parent, inst);
@@ -4512,7 +4541,8 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
         case kIROp_GetStringHash:
             result = emitGetStringHash(inst);
             break;
-        case kIROp_Undefined:
+        case kIROp_LoadFromUninitializedMemory:
+        case kIROp_Poison:
             result = emitOpUndef(parent, inst, inst->getDataType());
             break;
         case kIROp_SPIRVAsm:
@@ -4763,8 +4793,7 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
                 getSection(SpvLogicalSectionID::ConstantsAndTypes),
                 nullptr,
                 nullptr,
-                as<IRDebugFunction>(inst),
-                nullptr);
+                as<IRDebugFunction>(inst));
         case kIROp_DebugInlinedAt:
             return emitDebugInlinedAt(
                 getSection(SpvLogicalSectionID::ConstantsAndTypes),
@@ -6057,7 +6086,7 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
             return false;
         if (irInst->getOp() != kIROp_GlobalVar && irInst->getOp() != kIROp_GlobalParam)
             return false;
-        auto ptrType = as<IRPtrType>(irInst->getDataType());
+        auto ptrType = as<IRPtrTypeBase>(irInst->getDataType());
         if (!ptrType)
             return false;
         auto addrSpace = ptrType->getAddressSpace();
@@ -6163,6 +6192,7 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
                 }
                 else if (semanticName == "sv_clipdistance")
                 {
+                    requireSPIRVCapability(SpvCapabilityClipDistance);
                     return getBuiltinGlobalVar(inst->getFullType(), SpvBuiltInClipDistance, inst);
                 }
                 else if (semanticName == "sv_culldistance")
@@ -6480,12 +6510,19 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
             SpvStorageClassPhysicalStorageBuffer)
         {
             // If inst has a pointer type with PhysicalStorageBuffer address space,
-            // emit AliasedPointer decoration.
-            emitOpDecorate(
-                getSection(SpvLogicalSectionID::Annotations),
-                nullptr,
-                varInst,
-                (isVar ? SpvDecorationAliasedPointer : SpvDecorationAliased));
+            // emit AliasedPointer or RestrictPointer decoration.
+            SpvDecoration decor;
+            if (ptrType->getAccessQualifier() == AccessQualifier::Immutable)
+            {
+                // We can always safely use RestrictPointer for immutable pointers.
+                // This will allow better optimization.
+                decor = isVar ? SpvDecorationRestrictPointer : SpvDecorationRestrict;
+            }
+            else
+            {
+                decor = isVar ? SpvDecorationAliasedPointer : SpvDecorationAliased;
+            }
+            emitOpDecorate(getSection(SpvLogicalSectionID::Annotations), nullptr, varInst, decor);
         }
         else
         {
@@ -6545,6 +6582,8 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
         auto ptrType = as<IRPtrTypeBase>(inst->getDataType());
         SLANG_ASSERT(ptrType);
         SpvStorageClass storageClass = getSpvStorageClass(ptrType);
+
+        requireVariableBufferCapabilityIfNeeded(ptrType->getValueType());
 
         auto varSpvInst = emitOpVariable(parent, inst, inst->getFullType(), storageClass);
         maybeEmitName(varSpvInst, inst);
@@ -6706,6 +6745,11 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
                         break;
                     case kIROp_Loop:
                         argStartIndex = 3;
+                        // The use from a loop inst is a true source of control flow
+                        // only if the use is the loopInst's target block operand.
+                        // A use from loop's continue block shouldn't count as an incoming block.
+                        if (use != as<IRLoop>(branchInst)->getTargetBlockUse())
+                            continue;
                         break;
                     default:
                         // A phi argument can only come from an unconditional branch inst.
@@ -6749,6 +6793,27 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
             List<IRInst*> args;
             for (UInt i = 0; i < inst->getArgCount(); i++)
                 args.add(inst->getArg(i));
+            // Check if this is an extension instruction (has a "set" parameter)
+            if (spvOpDecor->getOperandCount() >= 2)
+            {
+                if (auto setName = as<IRStringLit>(spvOpDecor->getOperand(1)))
+                {
+                    // This is an extension instruction call
+                    // Import the extension set and emit OpExtInst
+                    SpvInst* extSet = getOrImportExtInstSet(setName->getStringSlice());
+                    return emitInst(
+                        parent,
+                        inst,
+                        SpvOpExtInst,
+                        inst->getFullType(),
+                        kResultID,
+                        extSet,
+                        SpvLiteralInteger::from32(op),
+                        args);
+                }
+            }
+
+            // Otherwise, treat as a raw SPIR-V opcode
             return emitInst(parent, inst, op, inst->getFullType(), kResultID, args);
         }
         else
@@ -7298,8 +7363,6 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
 
     SpvInst* emitStore(SpvInstParent* parent, IRInst* inst, IRInst* ptr, IRInst* val)
     {
-        requireVariableBufferCapabilityIfNeeded(inst->getDataType());
-
         IRBuilder builder(inst);
         int memoryAccessMask = 0;
         int alignment = -1;
@@ -7877,6 +7940,25 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
             inst->getFullType(),
             kResultID,
             inst->getOperand(0));
+    }
+
+    SpvInst* emitCopyLogical(SpvInstParent* parent, IRCopyLogical* inst)
+    {
+        IRBuilder builder(inst);
+        builder.setInsertBefore(inst);
+        auto dstValType = tryGetPointedToType(&builder, inst->getPtr()->getDataType());
+        auto srcValType = tryGetPointedToType(&builder, inst->getVal()->getDataType());
+        ShortList<IRInst*> attribs;
+        for (auto attrib : inst->getAllAttrs())
+        {
+            attribs.add(attrib);
+        }
+        auto slangIRLoad = as<IRLoad>(
+            builder.emitLoad(srcValType, inst->getVal(), attribs.getArrayView().arrayView));
+        auto srcVal = emitLoad(parent, slangIRLoad);
+        auto convertedVal =
+            emitInst(parent, nullptr, SpvOpCopyLogical, dstValType, kResultID, srcVal);
+        return emitOpStore(parent, nullptr, inst->getPtr(), convertedVal);
     }
 
     SpvInst* emitBitfieldExtract(SpvInstParent* parent, IRInst* inst)
@@ -8478,7 +8560,6 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
         SpvInst* firstBlock,
         SpvInst* spvFunc,
         IRDebugFunction* debugFunc,
-        IRFuncType* debugType,
         IRFunc* irFunc = nullptr)
     {
         SpvInst* debugFuncInfo = nullptr;
@@ -8491,15 +8572,8 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
         if (!scope)
             return nullptr;
 
-        SpvInst* neededDebugType = nullptr;
-        if (debugType)
-        {
-            neededDebugType = emitDebugType(debugType);
-        }
-        else
-        {
-            neededDebugType = emitDebugType(as<IRFuncType>(debugFunc->getDebugType()));
-        }
+        SpvInst* neededDebugType = emitDebugType(as<IRFuncType>(debugFunc->getDebugType()));
+        SLANG_ASSERT(neededDebugType);
 
         IRBuilder builder(debugFunc);
         debugFuncInfo = emitOpDebugFunction(
@@ -8712,6 +8786,17 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
             return nameOperand;
 
         IRBuilder builder(inst);
+        if (as<IRType>(inst))
+        {
+            StringBuilder sbName;
+            getTypeNameHint(sbName, inst);
+
+            if (sbName.getLength())
+            {
+                return builder.getStringValue(sbName.getUnownedSlice());
+            }
+        }
+
         return builder.getStringValue(toSlice("unamed"));
     }
 
@@ -8728,16 +8813,23 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
             return ensureInst(m_voidType);
 
         IRBuilder builder(type);
-        if (as<IRFuncType>(type))
+        if (IRFuncType* funcType = as<IRFuncType>(type))
         {
+            SpvInst* returnType = emitDebugType(funcType->getResultType());
+
             List<SpvInst*> argTypes;
+            for (UInt i = 0; i < funcType->getParamCount(); ++i)
+            {
+                argTypes.add(emitDebugType(funcType->getParamType(i)));
+            }
+
             return emitOpDebugTypeFunction(
                 getSection(SpvLogicalSectionID::ConstantsAndTypes),
                 nullptr,
                 m_voidType,
                 getNonSemanticDebugInfoExtInst(),
                 builder.getIntValue(builder.getUIntType(), 0),
-                ensureInst(m_voidType),
+                returnType,
                 argTypes);
         }
 
@@ -8803,6 +8895,18 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
                     spvFieldType = emitDebugType(fieldType);
                 }
 
+                // Check if the field key has a debug location decoration
+                // If so, use it; otherwise fall back to the struct type's location
+                IRInst* fieldSource = source;
+                IRInst* fieldLine = line;
+                IRInst* fieldCol = col;
+                if (auto fieldLoc = field->getKey()->findDecoration<IRDebugLocationDecoration>())
+                {
+                    fieldSource = fieldLoc->getSource();
+                    fieldLine = fieldLoc->getLine();
+                    fieldCol = fieldLoc->getCol();
+                }
+
                 auto memberType = emitOpDebugTypeMember(
                     getSection(SpvLogicalSectionID::ConstantsAndTypes),
                     nullptr,
@@ -8810,9 +8914,9 @@ struct SPIRVEmitContext : public SourceEmitterBase, public SPIRVEmitSharedContex
                     getNonSemanticDebugInfoExtInst(),
                     getName(field->getKey()),
                     spvFieldType,
-                    source,
-                    line,
-                    col,
+                    fieldSource,
+                    fieldLine,
+                    fieldCol,
                     builder.getIntValue(builder.getUIntType(), offset * 8),
                     builder.getIntValue(builder.getUIntType(), sizeAlignment.size * 8),
                     builder.getIntValue(builder.getUIntType(), 0));
@@ -9721,7 +9825,7 @@ SlangResult emitSPIRVFromIR(
     }
 #endif
 
-    removeAvailableInDownstreamModuleDecorations(CodeGenTarget::SPIRV, irModule);
+    removeAvailableInDownstreamModuleDecorations(irModule, CodeGenTarget::SPIRV);
 
     auto shouldPreserveParams = codeGenContext->getTargetProgram()->getOptionSet().getBoolOption(
         CompilerOptionName::PreserveParameters);

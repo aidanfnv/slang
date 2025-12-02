@@ -1104,7 +1104,7 @@ struct CUDAEntryPointVaryingParamLegalizeContext : EntryPointVaryingParamLegaliz
     {
         for (auto attr : typeLayout->getSizeAttrs())
         {
-            if (attr->getSize() != 0)
+            if (attr->getSize().compare(0) == std::partial_ordering::greater)
                 return attr->getResourceKind();
         }
         return LayoutResourceKind::None;
@@ -3573,7 +3573,8 @@ protected:
         }
 
         const auto topologyEnum = outputDeco->getTopologyType();
-        IRInst* topologyConst = builder.getIntValue(builder.getIntType(), topologyEnum);
+        IRIntLit* topologyConst =
+            (IRIntLit*)builder.getIntValue(builder.getIntType(), topologyEnum);
 
         IRType* vertexType = nullptr;
         IRType* indicesType = nullptr;

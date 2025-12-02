@@ -223,12 +223,12 @@ struct UsedRanges
         return Add(range);
     }
 
-    VarLayout* Add(VarLayout* param, UInt begin, LayoutSize end)
+    VarLayout* Add(VarLayout* param, LayoutOffset begin, LayoutSize end)
     {
         UsedRange range;
         range.parameter = param;
-        range.begin = begin;
-        range.end = end.isFinite() ? end.getFiniteValue() : UInt(-1);
+        range.begin = begin.getValidValueOr((UInt)-1);
+        range.end = end.getFiniteValueOr((UInt)-1);
         return Add(range);
     }
 
@@ -269,16 +269,7 @@ struct UsedRanges
 
     Index findRangeContaining(UInt index, LayoutSize size) const
     {
-        if (size.isFinite())
-        {
-            const auto count = size.getFiniteValue();
-            if (count > 0)
-            {
-                return (count == 1) ? findRangeContaining(index)
-                                    : findRangeContaining(index, count);
-            }
-        }
-        else
+        if (size.isInfinite())
         {
             // The size is infinite...
             const auto rangeCount = ranges.getCount();
@@ -291,14 +282,24 @@ struct UsedRanges
                 }
             }
         }
+        else if (size.compare(0) == std::partial_ordering::greater)
+        {
+            // We know that size is not infinite, and it's greater than 0 so it's not invalid
+            return size.compare(1) == std::partial_ordering::equivalent
+                       ? findRangeContaining(index)
+                       : findRangeContaining(index, size.getFiniteValue().getValidValue());
+        }
         return -1;
     }
 
     bool contains(UInt index) const { return findRangeContaining(index) >= 0; }
 
     // Try to find space for `count` entries
-    UInt Allocate(VarLayout* param, UInt count)
+    UInt Allocate(VarLayout* param, const LayoutOffset count)
     {
+        if (count.isInvalid())
+            return 0;
+
         UInt begin = 0;
 
         UInt rangeCount = ranges.getCount();
@@ -309,10 +310,10 @@ struct UsedRanges
             UInt end = ranges[rr].begin;
 
             // If there is enough space...
-            if (end >= begin + count)
+            if (end >= begin + count.getValidValue())
             {
                 // ... then claim it and be done
-                Add(param, begin, begin + count);
+                Add(param, begin, begin + count.getValidValue());
                 return begin;
             }
 
@@ -323,7 +324,7 @@ struct UsedRanges
 
         // We've run out of ranges to check, so we
         // can safely go after the last one!
-        Add(param, begin, begin + count);
+        Add(param, begin, begin + count.getValidValue());
         return begin;
     }
 };
@@ -757,13 +758,6 @@ static RefPtr<VarLayout> _createVarLayout(TypeLayout* typeLayout, DeclRef<VarDec
     varLayout->typeLayout = typeLayout;
     varLayout->varDecl = varDeclRef;
 
-    if (auto pendingDataTypeLayout = typeLayout->pendingDataTypeLayout)
-    {
-        RefPtr<VarLayout> pendingVarLayout = new VarLayout();
-        pendingVarLayout->varDecl = varDeclRef;
-        pendingVarLayout->typeLayout = pendingDataTypeLayout;
-        varLayout->pendingVarLayout = pendingVarLayout;
-    }
 
     return varLayout;
 }
@@ -846,7 +840,7 @@ static VarLayout* markSpaceUsed(ParameterBindingContext* context, VarLayout* var
     return context->shared->usedSpaces.Add(varLayout, space, space + 1);
 }
 
-static UInt allocateUnusedSpaces(ParameterBindingContext* context, UInt count)
+static UInt allocateUnusedSpaces(ParameterBindingContext* context, const LayoutOffset count)
 {
     return context->shared->usedSpaces.Allocate(nullptr, count);
 }
@@ -878,13 +872,13 @@ static void addExplicitParameterBinding(
     auto kind = semanticInfo.kind;
 
     auto& bindingInfo = parameterInfo->bindingInfo[(int)kind];
-    if (bindingInfo.count != 0)
+    if (bindingInfo.count.compare(0) == std::partial_ordering::greater)
     {
         // We already have a binding here, so we want to
         // confirm that it matches the new one that is
         // incoming...
-        if (bindingInfo.count != count || bindingInfo.index != semanticInfo.index ||
-            bindingInfo.space != semanticInfo.space)
+        if (bindingInfo.count.compare(count) != std::partial_ordering::equivalent ||
+            bindingInfo.index != semanticInfo.index || bindingInfo.space != semanticInfo.space)
         {
             getSink(context)->diagnose(
                 varDecl,
@@ -1410,6 +1404,8 @@ static void completeBindingsForParameterImpl(
     RefPtr<VarLayout> firstVarLayout,
     ParameterBindingInfo bindingInfos[kLayoutResourceKindCount])
 {
+    // TODO: check bindingInfos for finite/validity
+
     // For any resource kind used by the parameter
     // we need to update its layout information
     // to include a binding for that resource kind.
@@ -1424,7 +1420,7 @@ static void completeBindingsForParameterImpl(
     // consumes, so that we can allocate a contiguous range of
     // spaces.
     //
-    UInt spacesToAllocateCount = 0;
+    LayoutOffset spacesToAllocateCount = 0;
     for (auto typeRes : firstTypeLayout->resourceInfos)
     {
         auto kind = typeRes.kind;
@@ -1434,7 +1430,7 @@ static void completeBindingsForParameterImpl(
         // go into our contiguously allocated range.
         //
         auto& bindingInfo = bindingInfos[(int)kind];
-        if (bindingInfo.count != 0)
+        if (bindingInfo.count.compare(0) != std::partial_ordering::equivalent)
         {
             continue;
         }
@@ -1449,22 +1445,22 @@ static void completeBindingsForParameterImpl(
             //
             if (typeRes.count.isInfinite())
             {
-                spacesToAllocateCount++;
+                spacesToAllocateCount += 1;
             }
             break;
 
         case LayoutResourceKind::SubElementRegisterSpace:
-            // If the parameter consumes any full spaces (e.g., it
-            // is a `struct` type with one or more unbounded arrays
-            // for fields), then we will include those spaces in
-            // our allocaiton.
-            //
-            // We assume/require here that we never end up needing
-            // an unbounded number of spaces.
-            // TODO: we should enforce that somewhere with an error.
-            //
-            spacesToAllocateCount += typeRes.count.getFiniteValue();
-            break;
+            {
+                // If the parameter consumes any full spaces (e.g., it
+                // is a `struct` type with one or more unbounded arrays
+                // for fields), then we will include those spaces in
+                // our allocaiton.
+                //
+                // This will be set to invalid() should we be handling an
+                // unbounded number of spaces;
+                spacesToAllocateCount += typeRes.count.getFiniteValue();
+                break;
+            }
 
         case LayoutResourceKind::Uniform:
             // We want to ignore uniform data for this calculation,
@@ -1485,7 +1481,7 @@ static void completeBindingsForParameterImpl(
     // contiguous spaces here.
     //
     UInt firstAllocatedSpace = 0;
-    if (spacesToAllocateCount)
+    if (spacesToAllocateCount.compare(0) == std::partial_ordering::greater)
     {
         firstAllocatedSpace = allocateUnusedSpaces(context, spacesToAllocateCount);
     }
@@ -1501,7 +1497,7 @@ static void completeBindingsForParameterImpl(
         // for this resource kind?
         auto kind = typeRes.kind;
         auto& bindingInfo = bindingInfos[(int)kind];
-        if (bindingInfo.count != 0)
+        if (bindingInfo.count.compare(0) != std::partial_ordering::equivalent)
         {
             // If things have already been bound, our work is done.
             //
@@ -1539,7 +1535,7 @@ static void completeBindingsForParameterImpl(
                 // the number of spaces consumed.
                 //
                 bindingInfo.index = currentAllocatedSpace;
-                currentAllocatedSpace += count.getFiniteValue();
+                currentAllocatedSpace += count.getFiniteValue().getValidValue();
 
                 // TODO: what should we store as the "space" for
                 // an allocation of register spaces? Either zero
@@ -1615,13 +1611,13 @@ static void applyBindingInfoToParameter(
         auto& bindingInfo = bindingInfos[k];
 
         // skip resources we aren't consuming
-        if (bindingInfo.count == 0)
+        if (bindingInfo.count.compare(0) == std::partial_ordering::equivalent)
             continue;
 
         // Add a record to the variable layout
         auto varRes = varLayout->AddResourceInfo(kind);
         varRes->space = (int)bindingInfo.space;
-        varRes->index = (int)bindingInfo.index;
+        varRes->index = bindingInfo.index;
     }
 }
 
@@ -1649,28 +1645,6 @@ static void completeBindingsForParameter(
     ParameterBindingInfo bindingInfos[kLayoutResourceKindCount];
     completeBindingsForParameterImpl(context, varLayout, bindingInfos);
     applyBindingInfoToParameter(varLayout, bindingInfos);
-}
-
-/// Allocate binding location for any "pending" data in a shader parameter.
-///
-/// When a parameter contains interface-type fields (recursively), we might
-/// not have included them in the base layout for the parameter, and instead
-/// need to allocate space for them after all other shader parameters have
-/// been laid out.
-///
-/// This function should be called on the `pendingVarLayout` field of an
-/// existing `VarLayout` to ensure that its pending data has been properly
-/// assigned storage. It handles the case where the `pendingVarLayout`
-/// field is null.
-///
-static void _allocateBindingsForPendingData(
-    ParameterBindingContext* context,
-    RefPtr<VarLayout> pendingVarLayout)
-{
-    if (!pendingVarLayout)
-        return;
-
-    completeBindingsForParameter(context, pendingVarLayout);
 }
 
 struct SimpleSemanticInfo
@@ -2017,7 +1991,7 @@ static RefPtr<TypeLayout> processEntryPointVaryingParameterDecl(
                     continue;
 
                 auto varResInfo = varLayout->findOrAddResourceInfo(kind);
-                varResInfo->index = location;
+                varResInfo->index = (UInt)location;
 
                 // Note: OpenGL and Vulkan represent dual-source color blending
                 // differently from multiple render targets (MRT) at the source
@@ -2491,7 +2465,7 @@ static RefPtr<TypeLayout> processEntryPointVaryingParameter(
                     {
                         // If the field is a Conditional<T, false> type, then it could have 0 size.
                         // We should skip this field if it has no use of layout units.
-                        if (fieldTypeResInfo.count == 0)
+                        if (fieldTypeResInfo.count.compare(0) == std::partial_ordering::equivalent)
                             continue;
 
                         auto kind = fieldTypeResInfo.kind;
@@ -2521,7 +2495,8 @@ static RefPtr<TypeLayout> processEntryPointVaryingParameter(
                             // information, and we just need to update the computed
                             // size of the `struct` type to account for the field.
                             //
-                            auto fieldEndOffset = fieldResInfo->index + fieldTypeResInfo.count;
+                            auto fieldEndOffset =
+                                LayoutSize{fieldResInfo->index} + fieldTypeResInfo.count;
                             structTypeResInfo->count =
                                 maximum(structTypeResInfo->count, fieldEndOffset);
                         }
@@ -2706,13 +2681,6 @@ struct ScopeLayoutBuilder
     RefPtr<StructTypeLayout> m_structLayout;
     UniformLayoutInfo m_structLayoutInfo;
 
-    // We need to compute a layout for any "pending" data inside
-    // of the parameters being added to the scope, to facilitate
-    // later allocating space for all the pending parameters after
-    // the primary shader parameters.
-    //
-    StructTypeLayoutBuilder m_pendingDataTypeLayoutBuilder;
-
     void beginLayout(ParameterBindingContext* context, TypeLayoutContext layoutContext)
     {
         m_context = context;
@@ -2735,12 +2703,14 @@ struct ScopeLayoutBuilder
     {
         // Does the parameter have any uniform data?
         auto layoutInfo = varLayout->typeLayout->FindResourceInfo(LayoutResourceKind::Uniform);
-        LayoutSize uniformSize = layoutInfo ? layoutInfo->count : 0;
-        if (uniformSize != 0)
+        LayoutSize uniformSize = layoutInfo ? layoutInfo->count : LayoutSize(0);
+        if (uniformSize.compare(0) == std::partial_ordering::greater)
         {
             // Make sure uniform fields get laid out properly...
 
-            UniformLayoutInfo fieldInfo(uniformSize, varLayout->typeLayout->uniformAlignment);
+            UniformLayoutInfo fieldInfo(
+                uniformSize,
+                LayoutOffset{varLayout->typeLayout->uniformAlignment});
 
             auto rules = m_layoutContext.rules;
             LayoutSize uniformOffset = rules->AddStructField(&m_structLayoutInfo, fieldInfo);
@@ -2754,32 +2724,7 @@ struct ScopeLayoutBuilder
         m_structLayout->mapVarToLayout.add(varLayout->varDecl.getDecl(), varLayout);
     }
 
-    void addParameter(RefPtr<VarLayout> varLayout)
-    {
-        _addParameter(varLayout);
-
-        // Any "pending" items on a field type become "pending" items
-        // on the overall `struct` type layout.
-        //
-        // TODO: This logic ends up duplicated between here and the main
-        // `struct` layout logic in `type-layout.cpp`. If this gets any
-        // more complicated we should see if there is a way to share it.
-        //
-        if (auto fieldPendingDataTypeLayout = varLayout->typeLayout->pendingDataTypeLayout)
-        {
-            auto rules = m_layoutContext.rules;
-            m_pendingDataTypeLayoutBuilder.beginLayoutIfNeeded(nullptr, rules);
-            auto varDeclBase = varLayout->varDecl.as<VarDeclBase>();
-            if (!varDeclBase)
-                return;
-            auto fieldPendingDataVarLayout =
-                m_pendingDataTypeLayoutBuilder.addField(varDeclBase, fieldPendingDataTypeLayout);
-
-            m_structLayout->pendingDataTypeLayout = m_pendingDataTypeLayoutBuilder.getTypeLayout();
-
-            varLayout->pendingVarLayout = fieldPendingDataVarLayout;
-        }
-    }
+    void addParameter(RefPtr<VarLayout> varLayout) { _addParameter(varLayout); }
 
     void addParameter(ParameterInfo* parameterInfo)
     {
@@ -2787,42 +2732,6 @@ struct ScopeLayoutBuilder
         SLANG_RELEASE_ASSERT(varLayout);
 
         _addParameter(varLayout);
-
-        // Global parameters will have their non-orindary/uniform
-        // pending data handled by the main parameter binding
-        // logic, but we still need to construct a layout
-        // that includes any pending data.
-        //
-        if (auto fieldPendingVarLayout = varLayout->pendingVarLayout)
-        {
-            auto fieldPendingTypeLayout = fieldPendingVarLayout->typeLayout;
-
-            auto rules = m_layoutContext.rules;
-            m_pendingDataTypeLayoutBuilder.beginLayoutIfNeeded(nullptr, rules);
-            m_structLayout->pendingDataTypeLayout = m_pendingDataTypeLayoutBuilder.getTypeLayout();
-
-            auto fieldUniformLayoutInfo =
-                fieldPendingTypeLayout->FindResourceInfo(LayoutResourceKind::Uniform);
-            LayoutSize fieldUniformSize =
-                fieldUniformLayoutInfo ? fieldUniformLayoutInfo->count : 0;
-            if (fieldUniformSize != 0)
-            {
-                // Make sure uniform fields get laid out properly...
-
-                UniformLayoutInfo fieldInfo(
-                    fieldUniformSize,
-                    fieldPendingTypeLayout->uniformAlignment);
-
-                LayoutSize uniformOffset = rules->AddStructField(
-                    m_pendingDataTypeLayoutBuilder.getStructLayoutInfo(),
-                    fieldInfo);
-
-                fieldPendingVarLayout->findOrAddResourceInfo(LayoutResourceKind::Uniform)->index =
-                    uniformOffset.getFiniteValue();
-            }
-
-            m_pendingDataTypeLayoutBuilder.getTypeLayout()->fields.add(fieldPendingVarLayout);
-        }
     }
 
     RefPtr<VarLayout> endLayout(VarLayout* inVarLayout = nullptr)
@@ -2831,7 +2740,6 @@ struct ScopeLayoutBuilder
         //
         auto rules = m_layoutContext.rules;
         rules->EndStructLayout(&m_structLayoutInfo);
-        m_pendingDataTypeLayoutBuilder.endLayout();
 
         // Copy the final layout information computed for ordinary data
         // over to the struct type layout for the scope.
@@ -2857,12 +2765,6 @@ struct ScopeLayoutBuilder
 
         scopeVarLayout->typeLayout = scopeTypeLayout;
 
-        if (auto pendingTypeLayout = scopeTypeLayout->pendingDataTypeLayout)
-        {
-            RefPtr<VarLayout> pendingVarLayout = new VarLayout();
-            pendingVarLayout->typeLayout = pendingTypeLayout;
-            scopeVarLayout->pendingVarLayout = pendingVarLayout;
-        }
 
         return scopeVarLayout;
     }
@@ -2882,7 +2784,6 @@ struct SimpleScopeLayoutBuilder : ScopeLayoutBuilder
     void addSimpleParameter(RefPtr<VarLayout> varLayout)
     {
         // The main `addParameter` logic will deal with any ordinary/uniform data,
-        // and with the "pending" part of the layout.
         //
         addParameter(varLayout);
 
@@ -2924,7 +2825,7 @@ struct SimpleScopeLayoutBuilder : ScopeLayoutBuilder
                 // to add it to our set for tracking.
                 //
                 auto startOffset = paramResInfo->index;
-                auto endOffset = startOffset + paramTypeResInfo.count;
+                auto endOffset = LayoutSize{startOffset} + paramTypeResInfo.count;
                 usedRangeSet[int(kind)].Add(paramVarLayout, startOffset, endOffset);
             }
         }
@@ -2976,7 +2877,7 @@ struct SimpleScopeLayoutBuilder : ScopeLayoutBuilder
                     continue;
 
                 auto startOffset = paramResInfo->index;
-                auto endOffset = startOffset + paramTypeResInfo.count;
+                auto endOffset = LayoutSize{startOffset} + paramTypeResInfo.count;
 
                 auto scopeResInfo = m_structLayout->findOrAddResourceInfo(paramTypeResInfo.kind);
                 scopeResInfo->count = maximum(scopeResInfo->count, endOffset);
@@ -3037,16 +2938,18 @@ static ParameterBindingAndKindInfo _assignConstantBufferBinding(
                               context->layoutContext.objectLayoutOptions)
                           .getSimple();
 
-    const Index count = Index(layoutInfo.size.getFiniteValue());
+    const auto count = layoutInfo.size.getFiniteValue();
 
-    auto existingParam =
-        usedRangeSet->usedResourceRanges[(int)layoutInfo.kind].Add(varLayout, index, index + count);
+    auto existingParam = usedRangeSet->usedResourceRanges[(int)layoutInfo.kind].Add(
+        varLayout,
+        index,
+        LayoutSize{count + index});
     SLANG_UNUSED(existingParam);
     SLANG_ASSERT(existingParam == nullptr);
 
     ParameterBindingAndKindInfo info;
     info.kind = layoutInfo.kind;
-    info.count = count;
+    info.count = LayoutSize{count};
     info.index = index;
     info.space = space;
     return info;
@@ -3161,6 +3064,12 @@ static RefPtr<EntryPointLayout> collectEntryPointParameters(
     // which is what the `ScopeLayoutBuilder` is designed to help with.
     //
     TypeLayoutContext layoutContext = context->layoutContext;
+
+    // Use entry point parameter layout rules for target-specific cases,
+    // such as CUDA, where cuLaunchKernel expects an unpadded entry point parameter buffer size
+    // so we do not add trailing padding to parameter structs
+    layoutContext =
+        layoutContext.with(layoutContext.getRulesFamily()->getEntryPointParameterRules());
 
     if (isKhronosTarget(context->getTargetRequest()))
     {
@@ -3668,8 +3577,7 @@ struct ParameterBindingVisitorCounters
 ///
 /// This includes allocation of as-yet-unused register/binding ranges to parameters (which
 /// will then affect the ranges of registers/bindings that are available to subsequent
-/// parameters), and imporantly *also* includes allocate of space to any "pending"
-/// data for interface/existential type parameters/fields.
+/// parameters)
 ///
 static void _completeBindings(
     ParameterBindingContext* context,
@@ -3787,173 +3695,19 @@ struct CompleteBindingsVisitor : ComponentTypeVisitor
     }
 };
 
-/// A visitor used by `_completeBindings`.
-///
-/// This visitor is used to follow up after the `CompleteBindingsVisitor`
-/// any ensure that any "pending" data required by the parameters that
-/// got laid out now gets a location.
-///
-/// To make a concrete example:
-///
-///     Texture2D a;
-///     IThing    b;
-///     Texture2D c;
-///
-/// If these parameters were laid out with `b` specialized to a type
-/// that contains a single `Texture2D`, then the `CompleteBindingsVisitor`
-/// would visit `a`, `b`, and then `c` in order. It would give `a` the
-/// first register/binding available (say, `t0`). It would then make
-/// a note that due to specialization, `b`, needs a `t` register as well,
-/// but it *cannot* be allocated just yet, because doing so would change
-/// the location of `c`, so it is marked as "pending." Then `c` would
-/// be visited and get `t1`. As a result the registers given to `a`
-/// and `c` are independent of how `b` gets specialized.
-///
-/// Next, the `FlushPendingDataVisitor` comes through and applies to
-/// the parameters again. For `a` there is no pending data, but for
-/// `b` there is a pending request for a `t` register, so it gets allocated
-/// now (getting `t2`). The `c` parameter then has no pending data, so
-/// we are done.
-///
-/// *When* the pending data gets flushed is then significant. In general,
-/// the order in which modules get composed an specialized is signficaint.
-/// The module above (let's call it `M`) has one specialization parameter
-/// (for `b`), and if we want to compose it with another module `N` that
-/// has no specialization parameters, we could compute either:
-///
-///     compose(specialize(M, SomeType), N)
-///
-/// or:
-///
-///     specialize(compose(M,N), SomeType)
-///
-/// In the first case, the "pending" data for `M` gets flushed right after `M`,
-/// so that `specialize(M,SomeType)` can have a consistent layout
-/// regardless of how it is used. In the second case, the pending data for
-/// `M` only gets flushed after `N`'s parameters are allocated, thus guaranteeing
-/// that the `compose(M,N)` part has a consistent layout regardless of what
-/// type gets plugged in during specialization.
-///
-/// There are trade-offs to be made by an application about which approach
-/// to prefer, and the compiler supports either policy choice.
-///
-struct FlushPendingDataVisitor : ComponentTypeVisitor
-{
-    FlushPendingDataVisitor(
-        ParameterBindingContext* context,
-        ParameterBindingVisitorCounters* counters)
-        : m_context(context), m_counters(counters)
-    {
-    }
-
-    ParameterBindingContext* m_context;
-    ParameterBindingVisitorCounters* m_counters;
-
-    void visitEntryPoint(
-        EntryPoint* entryPoint,
-        EntryPoint::EntryPointSpecializationInfo* specializationInfo) SLANG_OVERRIDE
-    {
-        SLANG_UNUSED(entryPoint);
-        SLANG_UNUSED(specializationInfo);
-
-        auto globalEntryPointIndex = m_counters->entryPointCounter++;
-        auto globalEntryPointInfo =
-            m_context->shared->programLayout->entryPoints[globalEntryPointIndex];
-
-        // We need to allocate space for any "pending" data that
-        // appeared in the entry-point parameter list.
-        //
-        _allocateBindingsForPendingData(
-            m_context,
-            globalEntryPointInfo->parametersLayout->pendingVarLayout);
-    }
-
-    void visitRenamedEntryPoint(
-        RenamedEntryPointComponentType* entryPoint,
-        EntryPoint::EntryPointSpecializationInfo* specializationInfo) SLANG_OVERRIDE
-    {
-        entryPoint->getBase()->acceptVisitor(this, specializationInfo);
-    }
-
-    void visitModule(Module* module, Module::ModuleSpecializationInfo* specializationInfo)
-        SLANG_OVERRIDE
-    {
-        SLANG_UNUSED(specializationInfo);
-        visitLeafParams(module);
-    }
-
-    void visitLeafParams(ComponentType* componentType)
-    {
-        // In the "leaf" case we just allocate space for any
-        // pending data in the parameters, in order.
-        //
-        auto paramCount = componentType->getShaderParamCount();
-        for (Index ii = 0; ii < paramCount; ++ii)
-        {
-            auto globalParamIndex = m_counters->globalParamCounter++;
-            auto globalParamInfo = m_context->shared->parameters[globalParamIndex];
-            auto varLayout = globalParamInfo->varLayout;
-
-            _allocateBindingsForPendingData(m_context, varLayout->pendingVarLayout);
-        }
-    }
-
-    void visitComposite(
-        CompositeComponentType* composite,
-        CompositeComponentType::CompositeSpecializationInfo* specializationInfo) SLANG_OVERRIDE
-    {
-        visitChildren(composite, specializationInfo);
-    }
-
-    void visitSpecialized(SpecializedComponentType* specialized) SLANG_OVERRIDE
-    {
-        // Because `SpecializedComponentType` was a special case for `CompleteBindingsVisitor`,
-        // it ends up being a special case here too.
-        //
-        // The `CompleteBindings...` pass treated a `SpecializedComponentType`
-        // as an atomic unit. Any "pending" data that came from its parameters
-        // will already have been dealt with, so it would be incorrect for
-        // us to recurse into `specialized`.
-        //
-        // Instead, we just need to *skip* `specialized`, since it was
-        // completely handled already. This isn't quite as simple
-        // as just doing nothing, because our passes are using
-        // some global counters to find the absolute/linear index
-        // of each parameter and entry point as it is encountered.
-        // We will simply bump those counters by the number of
-        // parameters and entry points contained under `specialized`,
-        // which is luckily provided by the `ComponentType` API.
-        //
-        m_counters->globalParamCounter += specialized->getShaderParamCount();
-        m_counters->entryPointCounter += specialized->getEntryPointCount();
-    }
-
-    void visitTypeConformance(TypeConformance* conformance) SLANG_OVERRIDE
-    {
-        SLANG_UNUSED(conformance);
-    }
-};
-
 static void _completeBindings(
     ParameterBindingContext* context,
     ComponentType* componentType,
     ParameterBindingVisitorCounters* ioCounters)
 {
-    ParameterBindingVisitorCounters savedCounters = *ioCounters;
-
     CompleteBindingsVisitor completeBindingsVisitor(context, ioCounters);
     componentType->acceptVisitor(&completeBindingsVisitor, nullptr);
-
-    FlushPendingDataVisitor flushVisitor(context, &savedCounters);
-    componentType->acceptVisitor(&flushVisitor, nullptr);
 }
 
 /// "Complete" binding of parametesr in the given `program`.
 ///
 /// Completing binding involves both assigning registers/bindings
-/// to an parameters that didn't get explicit locations, and then
-/// also providing locations to any "pending" data that needed
-/// space allocated (used for existential/interface type parameters).
+/// to an parameters that didn't get explicit locations
 ///
 static void _completeBindings(ParameterBindingContext* context, ComponentType* program)
 {
@@ -3985,7 +3739,8 @@ static bool _calcNeedsDefaultSpace(SharedParameterBindingContext& sharedContext)
             // the space from the explicit binding will be used, so
             // that a default space isn't needed.
             //
-            if (parameterInfo->bindingInfo[resInfo.kind].count != 0)
+            if (parameterInfo->bindingInfo[resInfo.kind].count.compare(0) ==
+                std::partial_ordering::greater)
                 continue;
 
             // We also want to exclude certain resource kinds from
@@ -4057,7 +3812,7 @@ static bool _calcNeedsDefaultSpace(SharedParameterBindingContext& sharedContext)
 
 static void _appendRange(Index start, LayoutSize size, StringBuilder& ioBuf)
 {
-    if (size == 1)
+    if (size.compare(1) == std::partial_ordering::equivalent)
     {
         // If it's in effect a single index, just append like that.
         ioBuf << start;
@@ -4065,13 +3820,17 @@ static void _appendRange(Index start, LayoutSize size, StringBuilder& ioBuf)
     else
     {
         ioBuf << "[ " << start << " ... ";
-        if (size.isFinite())
+        if (size.isInfinite())
         {
-            ioBuf << start + (Index)size.getFiniteValue() << ")";
+            ioBuf << "inf )";
+        }
+        else if (size.isInvalid())
+        {
+            ioBuf << start << "invalid )";
         }
         else
         {
-            ioBuf << "inf )";
+            ioBuf << start + (Index)size.getFiniteValue().getValidValue() << ")";
         }
     }
 }
@@ -4138,7 +3897,9 @@ static void _maybeApplyHLSLToVulkanShifts(
                     bindingInfo.index += shift;
 
                     // Presumably they should both match
-                    SLANG_ASSERT(bindingInfo.index == resourceInfo.index);
+                    SLANG_ASSERT(
+                        resourceInfo.index.compare(bindingInfo.index) ==
+                        std::partial_ordering::equivalent);
                     SLANG_ASSERT(bindingInfo.space == resourceInfo.space);
                 }
 
@@ -4529,7 +4290,7 @@ RefPtr<ProgramLayout> generateParameterBindings(TargetProgram* targetProgram, Di
 
     globalScopeVarLayout = globalScopeLayoutBuilder.endLayout(globalScopeVarLayout);
 
-    if (globalConstantBufferBinding.count != 0)
+    if (globalConstantBufferBinding.count.compare(0) != std::partial_ordering::equivalent)
     {
         auto cbInfo = globalScopeVarLayout->findOrAddResourceInfo(globalConstantBufferBinding.kind);
 

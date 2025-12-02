@@ -557,13 +557,43 @@ static SlangResult _gatherTestsForFile(
 
     String fileContents;
 
-    SlangResult readResult = Slang::File::readAllText(filePath, fileContents);
+    TestReporter* testReporter = nullptr;
+    if (context)
+        testReporter = context->getTestReporter();
+
+    // Try reading the file with retries on failure to handle intermittent I/O errors
+    // (commonly seen on macOS in CI environments)
+    SlangResult readResult = SLANG_FAIL;
+    for (int retryCount = 0; retryCount < 3 && SLANG_FAILED(readResult); ++retryCount)
+    {
+        if (retryCount)
+        {
+            if (testReporter)
+            {
+                testReporter->messageFormat(
+                    TestMessageType::Info,
+                    "Retrying to read test file '%s' (attempt %d)",
+                    filePath.getBuffer(),
+                    retryCount + 1);
+            }
+            else
+            {
+                fprintf(
+                    stderr,
+                    "Retrying to read test file '%s' (attempt %d)\n",
+                    filePath.getBuffer(),
+                    retryCount + 1);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(retryCount * 100));
+        }
+        readResult = Slang::File::readAllText(filePath, fileContents);
+    }
     if (SLANG_FAILED(readResult))
     {
         // Log file reading failure with details (thread-safe)
-        if (context && context->getTestReporter())
+        if (testReporter)
         {
-            context->getTestReporter()->messageFormat(
+            testReporter->messageFormat(
                 TestMessageType::RunError,
                 "Failed to read test file '%s' (error: 0x%08X)",
                 filePath.getBuffer(),
@@ -3911,7 +3941,7 @@ TestResult runComputeComparisonImpl(
                       return SLANG_SUCCEEDED(
                           _compareWithType(a.getUnownedSlice(), e.getUnownedSlice()));
                   });
-    return std::max(compileResult, bufferResult);
+    return TestReporter::combine(compileResult, bufferResult);
 }
 
 TestResult runSlangComputeComparisonTest(TestContext* context, TestInput& input)
@@ -4724,6 +4754,9 @@ static SlangResult _runTestsOnFile(TestContext* context, String filePath)
 
                     std::lock_guard lock(context->mutexFailedTests);
                     context->failedFileTests.add(fileTestInfo);
+
+                    // Mark test as pending retry - it won't be counted in statistics yet
+                    context->getTestReporter()->addResult(TestResult::PendingRetry);
                 }
                 else
                 {
@@ -4831,6 +4864,19 @@ template<typename F>
 void runTestsInParallel(TestContext* context, int count, const F& f)
 {
     auto originalReporter = context->getTestReporter();
+
+    // Pre-create test-server processes sequentially to avoid concurrent fork() issues.
+    // This eliminates the thundering herd problem when all threads start simultaneously.
+    if (context->options.defaultSpawnType == SpawnType::UseTestServer ||
+        context->options.defaultSpawnType == SpawnType::UseFullyIsolatedTestServer)
+    {
+        for (int threadId = 0; threadId < context->options.serverCount; threadId++)
+        {
+            context->setThreadIndex(threadId);
+            context->getOrCreateJSONRPCConnection();
+        }
+    }
+
     std::atomic<int> consumePtr;
     consumePtr = 0;
     auto threadFunc = [&](int threadId)
@@ -5106,6 +5152,9 @@ static SlangResult runUnitTestModule(
                 {
                     std::lock_guard lock(context->mutexFailedTests);
                     context->failedUnitTests.add(test.command);
+
+                    // Mark test as pending retry - it won't be counted in statistics yet
+                    reporter->addResult(TestResult::PendingRetry);
                 }
                 else
                 {
@@ -5466,6 +5515,10 @@ SlangResult innerMain(int argc, char** argv)
         else
         {
             // If there are too many failed tests, don't bother retrying.
+            printf(
+                "Too many failed tests for retry(%d) - setting all to failed\n",
+                (int)context.failedFileTests.getCount());
+            fflush(stdout);
             for (auto& test : context.failedFileTests)
             {
                 FileTestInfoImpl* fileTestInfo = static_cast<FileTestInfoImpl*>(test.Ptr());

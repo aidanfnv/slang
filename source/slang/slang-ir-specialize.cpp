@@ -880,7 +880,9 @@ struct SpecializationContext
         IRInst* satisfyingVal = nullptr;
 
         if (witnessTable)
-            satisfyingVal = findWitnessVal(witnessTable, requirementKey);
+        {
+            satisfyingVal = findWitnessTableEntry(witnessTable, requirementKey);
+        }
         else
         {
             // If we are specializing ThisTypeWitness, the result of the specialization
@@ -935,27 +937,6 @@ struct SpecializationContext
         return instChanged;
     }
 
-    // The above subroutine needed a way to look up
-    // the satisfying value for a given requirement
-    // key in a concrete witness table, so let's
-    // define that now.
-    //
-    IRInst* findWitnessVal(IRWitnessTable* witnessTable, IRInst* requirementKey)
-    {
-        // A witness table is basically just a container
-        // for key-value pairs, and so the best we can
-        // do for now is a naive linear search.
-        //
-        for (auto entry : witnessTable->getEntries())
-        {
-            if (requirementKey == entry->getRequirementKey())
-            {
-                return entry->getSatisfyingVal();
-            }
-        }
-        return nullptr;
-    }
-
     template<typename TDict>
     void _readSpecializationDictionaryImpl(TDict& dict, IRInst* dictInst)
     {
@@ -982,7 +963,7 @@ struct SpecializationContext
                     shouldSkip = true;
                     break;
                 }
-                if (item->getOperand(i)->getOp() == kIROp_Undefined)
+                if (as<IRUndefined>(item->getOperand(i)))
                 {
                     shouldSkip = true;
                     break;
@@ -3036,8 +3017,8 @@ struct SpecializationContext
 };
 
 bool specializeModule(
-    TargetProgram* target,
     IRModule* module,
+    TargetProgram* target,
     DiagnosticSink* sink,
     SpecializationOptions options)
 {
