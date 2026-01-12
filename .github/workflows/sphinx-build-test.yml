@@ -1,0 +1,85 @@
+name: Build Sphinx Documentation
+
+on:
+  pull_request:
+    branches: [master]
+
+jobs:
+  sphinx-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout shader-slang.github.io main branch
+        uses: actions/checkout@v4
+        with:
+          repository: aidanfnv/shader-slang.github.io
+          ref: fix/sphinx-warnings
+          path: docs-site
+          submodules: recursive
+
+      - name: Remove existing slang directory if present
+        run: rm -rf docs-site/docs/external/slang
+
+      - name: Checkout slang PR branch as submodule
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          repository: ${{ github.head_repository.full_name }}
+          path: docs-site/docs/external/slang
+          submodules: recursive
+
+      - name: Backup existing core-module-reference index.md
+        run: |
+          if [ -f docs-site/docs/external/core-module-reference/index.md ]; then
+            cp docs-site/docs/external/core-module-reference/index.md /tmp/core-module-index.md
+          fi
+
+      - name: Remove existing core-module-reference directory
+        run: rm -rf docs-site/docs/external/core-module-reference
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libx11-dev
+
+      - name: Build slangc from PR
+        run: |
+          cd docs-site/docs/external/slang
+          # Disable LLVM for faster build since we only need slangc for docs
+          cmake --preset default --fresh -DSLANG_SLANG_LLVM_FLAVOR=DISABLE
+          cmake --build --preset release --target slangc
+
+      - name: Generate core module reference from PR
+        run: |
+          cd docs-site/docs/external
+          mkdir -p core-module-reference
+          cd core-module-reference
+          # Generate the core module documentation
+          ../slang/build/Release/bin/slangc -compile-core-module -doc
+          # Restore the original index.md
+          cp /tmp/core-module-index.md index.md
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r docs-site/requirements.txt
+
+      - name: Build Sphinx Documentation
+        run: |
+          cd docs-site/docs
+          # Run Sphinx build to catch issues
+          # -D build_toctree=True enables toctree processing to verify all docs are included
+          python -m sphinx -W -b html . _build/html
+
+      - name: Check for broken links to external sites
+        run: |
+          cd docs-site/docs
+          # Run linkcheck builder to find broken links
+          python -m sphinx -b linkcheck . _build/linkcheck
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

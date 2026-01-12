@@ -112,7 +112,8 @@ This matches the behavior of D3D where `SV_InstanceID` and `SV_VertexID` starts 
 If you need direct access to `InstanceIndex` and `VertexIndex` values, use `SV_VulkanInstanceID` and `SV_VulkanVertexID` semantic names. These are supported for all targets except HLSL.
 Alternatively you can use parameters with `SV_InstanceID`(or `SV_VertexID`) and `SV_StartInstanceLocation`(or `SV_StartVertexLocation`) semantics:
 
-```slang
+<!-- There is no "slang" lexer, so "hlsl" will be used here instead -->
+```hlsl
 void myVertexShader(
     uint instanceID : SV_InstanceID,               // InstanceIndex - BaseInstance
     uint baseInstance : SV_StartInstanceLocation)   // BaseInstance

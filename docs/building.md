@@ -86,7 +86,7 @@ For non-Windows platforms
 ```
 
 For Windows
-```cmd
+```batch
 emsdk.bat install latest
 emsdk.bat activate latest
 ```

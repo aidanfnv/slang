@@ -114,19 +114,19 @@ void DocMarkdownWriter::_appendAsBullets(
     auto& out = *m_builder;
     for (const auto& value : values)
     {
-        out << "#### ";
         if (value.decl)
         {
             // Add anchor ID for the decl.
             if (as<GenericTypeParamDeclBase>(value.decl))
             {
-                out << " <a id=\"typeparam-" << getText(value.decl->getName()) << "\"></a>";
+                out << "(typeparam-" << getText(value.decl->getName()) << ")=\n";
             }
             else
             {
-                out << " <a id=\"decl-" << getText(value.decl->getName()) << "\"></a>";
+                out << "(decl-" << getText(value.decl->getName()) << ")=\n";
             }
         }
+        out << "#### ";
         const String& name = value.name;
         auto path = findLinkForToken(m_currentPage, name);
         if (name.getLength())
@@ -2160,7 +2160,7 @@ String DocMarkdownWriter::translateToMarkdownWithLinks(String text, bool strictC
                 sb.append(Path::getPathWithoutExt(Path::getRelativePath(
                     Path::getParentDirectory(m_currentPage->path),
                     page->path)));
-                sb.append(".html");
+                sb.append(".md");
                 if (sectionName.getLength())
                     sb << "#" << sectionName;
                 sb.append(")");
