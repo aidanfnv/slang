@@ -3003,18 +3003,18 @@ Expr* SemanticsVisitor::CheckInvokeExprWithCheckedOperands(InvokeExpr* expr)
             if (funcDeclRefExpr)
                 funcDeclBase = as<FunctionDeclBase>(funcDeclRefExpr->declRef.getDecl());
 
-            KnownBuiltinAttribute* knownBuiltinAttr = nullptr;
+            KnownBuiltinAttribute* knownBuiltinAttribute = nullptr;
             if (funcDeclRefExpr)
             {
-                knownBuiltinAttr = as<KnownBuiltinAttribute>(
+                knownBuiltinAttribute = as<KnownBuiltinAttribute>(
                     getDeclRef(m_astBuilder, funcDeclRefExpr)
                         .getDecl()
                         ->findModifier<KnownBuiltinAttribute>());
             }
             ConstantIntVal* constantIntVal = nullptr;
-            if (knownBuiltinAttr)
+            if (knownBuiltinAttribute)
             {
-                constantIntVal = as<ConstantIntVal>(knownBuiltinAttr->name);
+                constantIntVal = as<ConstantIntVal>(knownBuiltinAttribute->name);
             }
             if (constantIntVal)
             {
