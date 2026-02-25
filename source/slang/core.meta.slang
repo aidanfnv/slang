@@ -2873,6 +2873,12 @@ __intrinsic_op(0)
 [require(cpp_cuda_spirv_llvm)]
 __prefix Ptr<T, Access::ReadWrite, AddressSpace::Device> operator&(__ref T value);
 
+__generic<T>
+__intrinsic_op(0)
+[KnownBuiltin( $((int)KnownBuiltinDeclName::InternalAddressOf))]
+[require(cpp_cuda_spirv_llvm)]
+Ptr<T, Access::ReadWrite, AddressSpace::Device> __addressOf(__ref T value);
+
 __generic<$(ptrTypeParameterList), TInt : __BuiltinIntegerType>
 __intrinsic_op($(kIROp_GetOffsetPtr))
 $(fullPtrType) operator+($(fullPtrType) value, TInt offset);

@@ -3110,7 +3110,9 @@ Expr* SemanticsVisitor::CheckInvokeExprWithCheckedOperands(InvokeExpr* expr)
                                                 as<ConstantIntVal>(knownBuiltinAttr->name))
                                         {
                                             if (constantIntVal->getValue() ==
-                                                (int)KnownBuiltinDeclName::OperatorAddressOf)
+                                                    (int)KnownBuiltinDeclName::OperatorAddressOf ||
+                                                constantIntVal->getValue() ==
+                                                    (int)KnownBuiltinDeclName::InternalAddressOf)
                                             {
                                                 getSink()->diagnose(
                                                     argExpr,
