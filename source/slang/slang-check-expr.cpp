@@ -3003,27 +3003,21 @@ Expr* SemanticsVisitor::CheckInvokeExprWithCheckedOperands(InvokeExpr* expr)
             if (funcDeclRefExpr)
                 funcDeclBase = as<FunctionDeclBase>(funcDeclRefExpr->declRef.getDecl());
 
-            KnownBuiltinAttribute* knownBuiltinAttribute = nullptr;
             if (funcDeclRefExpr)
             {
-                knownBuiltinAttribute = as<KnownBuiltinAttribute>(
-                    getDeclRef(m_astBuilder, funcDeclRefExpr)
-                        .getDecl()
-                        ->findModifier<KnownBuiltinAttribute>());
-            }
-            ConstantIntVal* constantIntVal = nullptr;
-            if (knownBuiltinAttribute)
-            {
-                constantIntVal = as<ConstantIntVal>(knownBuiltinAttribute->name);
-            }
-            if (constantIntVal)
-            {
-                if (constantIntVal->getValue() ==
-                    (int)KnownBuiltinDeclName::OperatorAddressOf)
+                auto knownBuiltinAttrDeclRef = getDeclRef(m_astBuilder, funcDeclRefExpr)
+                                                   .getDecl()
+                                                   ->findModifier<KnownBuiltinAttribute>();
+                if (auto knownBuiltinAttr = as<KnownBuiltinAttribute>(knownBuiltinAttrDeclRef))
                 {
-                    getSink()->diagnose(
-                        invoke,
-                        Diagnostics::addressOfOperatorNotSupported);
+                    if (auto constantIntVal = as<ConstantIntVal>(knownBuiltinAttr->name))
+                    {
+                        if (constantIntVal->getValue() ==
+                            (int)KnownBuiltinDeclName::OperatorAddressOf)
+                        {
+                            getSink()->diagnose(invoke, Diagnostics::addressOfOperatorNotSupported);
+                        }
+                    }
                 }
             }
 
