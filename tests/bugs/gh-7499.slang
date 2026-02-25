@@ -20,7 +20,7 @@ export __extern_cpp int main()
     // Success is not crashing the compiler.
     int size = 0;
     int arr = 0;
-    f(__addressOf(arr), size);
+    f(&arr, size);
 
     return 0;
 }

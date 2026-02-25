@@ -235,7 +235,6 @@ FIDDLE() namespace Slang
         IDifferentiablePtr,
         NullDifferential,
         OperatorAddressOf,
-        InternalAddressOf,
         COUNT
     };
 
