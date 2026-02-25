@@ -11,7 +11,7 @@ StructuredBuffer<uint> constant_uint_buffer;
 [numthreads(1,1,1)]
 void computeMain(uint3 threadId : SV_DispatchThreadID)
 {
-    float* mutablePtr1 = &mutable_float_buffer[threadId.x];
+    float* mutablePtr1 = __addressOf(mutable_float_buffer[threadId.x]);
 
     // CHECK: ([[# @LINE+1]]): error 31160
     float* mutablePtr2 = __getAddress(mutable_float_buffer[threadId.x]);
@@ -20,7 +20,7 @@ void computeMain(uint3 threadId : SV_DispatchThreadID)
 
     // Constant pointers arent a thing in slang
     // CHECK: ([[# @LINE+1]]): error 30079:
-    float* ptr1 = &constant_float_buffer[threadId.x];
+    float* ptr1 = __addressOf(constant_float_buffer[threadId.x]);
 
     // CHECK: ([[# @LINE+1]]): error 31160
     float* ptr2 = __getAddress(constant_float_buffer[threadId.x]);

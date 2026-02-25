@@ -3003,6 +3003,30 @@ Expr* SemanticsVisitor::CheckInvokeExprWithCheckedOperands(InvokeExpr* expr)
             if (funcDeclRefExpr)
                 funcDeclBase = as<FunctionDeclBase>(funcDeclRefExpr->declRef.getDecl());
 
+            KnownBuiltinAttribute* knownBuiltinAttr = nullptr;
+            if (funcDeclRefExpr)
+            {
+                knownBuiltinAttr = as<KnownBuiltinAttribute>(
+                    getDeclRef(m_astBuilder, funcDeclRefExpr)
+                        .getDecl()
+                        ->findModifier<KnownBuiltinAttribute>());
+            }
+            ConstantIntVal* constantIntVal = nullptr;
+            if (knownBuiltinAttr)
+            {
+                constantIntVal = as<ConstantIntVal>(knownBuiltinAttr->name);
+            }
+            if (constantIntVal)
+            {
+                if (constantIntVal->getValue() ==
+                    (int)KnownBuiltinDeclName::OperatorAddressOf)
+                {
+                    getSink()->diagnose(
+                        invoke,
+                        Diagnostics::addressOfOperatorNotSupported);
+                }
+            }
+
             Index paramCount = funcType->getParamCount();
             for (Index pp = 0; pp < paramCount; ++pp)
             {
@@ -3110,7 +3134,9 @@ Expr* SemanticsVisitor::CheckInvokeExprWithCheckedOperands(InvokeExpr* expr)
                                                 as<ConstantIntVal>(knownBuiltinAttr->name))
                                         {
                                             if (constantIntVal->getValue() ==
-                                                (int)KnownBuiltinDeclName::OperatorAddressOf)
+                                                    (int)KnownBuiltinDeclName::OperatorAddressOf ||
+                                                constantIntVal->getValue() ==
+                                                    (int)KnownBuiltinDeclName::InternalAddressOf)
                                             {
                                                 getSink()->diagnose(
                                                     argExpr,

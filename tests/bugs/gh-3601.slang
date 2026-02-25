@@ -23,7 +23,7 @@ void funcThatTakesPointer(PP* p)
 }
 int* funcThatReturnsPointer(PP* p)
 {
-    return &p.data;
+    return __addressOf(p.data);
 }
 
 // CHECK: OpEntryPoint

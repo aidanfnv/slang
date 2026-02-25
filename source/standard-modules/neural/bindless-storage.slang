@@ -62,7 +62,7 @@ public struct BindlessAddress<T> : IPointerLikeAddress<T>
         {
         case cuda:
             // On CUDA, use packed vector atomic for types that support it (half2, bfloat16x2).
-            let scalarPtr = &handle[baseIndex + index];
+            let scalarPtr = __addressOf(handle[baseIndex + index]);
             let vecPtr = reinterpret<vector<T, 2>*>(scalarPtr);
             __atomic_reduce_add(vecPtr[0], value);
         default:
