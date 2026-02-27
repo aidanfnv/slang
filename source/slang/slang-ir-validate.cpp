@@ -781,7 +781,38 @@ void validateAtomicOperations(IRModule* module, bool skipFuncParamValidation, Di
     validateAtomicOperations(skipFuncParamValidation, sink, module->getModuleInst());
 }
 
-static void validateGetAddressUsageRecursively(DiagnosticSink* sink, IRInst* inst)
+// Walk through derived-pointer ops to find the root allocation,
+// then check if it lives in function-local memory.
+static bool isFunctionLocalAddress(IRInst* val)
+{
+    IRInst* root = val;
+    while (root)
+    {
+        switch (root->getOp())
+        {
+        // Derived pointers — keep walking to the base.
+        case kIROp_FieldAddress:
+        case kIROp_GetElementPtr:
+        case kIROp_GetOffsetPtr:
+            root = root->getOperand(0);
+            continue;
+        case kIROp_Var:
+            {
+                auto ptrType = as<IRPtrType>(root->getDataType());
+                return !ptrType || !ptrType->hasAddressSpace() ||
+                       ptrType->getAddressSpace() == AddressSpace::Function;
+            }
+        default:
+            return false;
+        }
+    }
+    return false;
+}
+
+// visitAddressOfExpr lowers __getAddress into an IRVar decorated with
+// GetAddressDecoration, with a store of the source address into it.
+// Find those decorated vars and reject stores of function-local addresses.
+static void validateGetAddressUsageImpl(DiagnosticSink* sink, IRInst* inst)
 {
     if (inst->getOp() == kIROp_Var && inst->findDecoration<IRGetAddressDecoration>())
     {
@@ -793,28 +824,22 @@ static void validateGetAddressUsageRecursively(DiagnosticSink* sink, IRInst* ins
             auto store = as<IRStore>(user);
             if (store->getPtr() != inst)
                 continue;
-            auto storedVal = store->getVal();
-            if (storedVal->getOp() == kIROp_Var)
+            if (isFunctionLocalAddress(store->getVal()))
             {
-                auto ptrType = as<IRPtrType>(storedVal->getDataType());
-                if (!ptrType || !ptrType->hasAddressSpace() ||
-                    ptrType->getAddressSpace() == AddressSpace::Function)
-                {
-                    sink->diagnose(inst->sourceLoc, Diagnostics::invalidAddressOf);
-                }
+                sink->diagnose(inst->sourceLoc, Diagnostics::invalidAddressOf);
             }
         }
     }
 
     for (auto child : inst->getModifiableChildren())
     {
-        validateGetAddressUsageRecursively(sink, child);
+        validateGetAddressUsageImpl(sink, child);
     }
 }
 
 void validateGetAddressUsage(IRModule* module, DiagnosticSink* sink)
 {
-    validateGetAddressUsageRecursively(sink, module->getModuleInst());
+    validateGetAddressUsageImpl(sink, module->getModuleInst());
 }
 
 } // namespace Slang
