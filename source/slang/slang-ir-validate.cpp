@@ -781,4 +781,40 @@ void validateAtomicOperations(IRModule* module, bool skipFuncParamValidation, Di
     validateAtomicOperations(skipFuncParamValidation, sink, module->getModuleInst());
 }
 
+static void validateGetAddressUsageRecursively(DiagnosticSink* sink, IRInst* inst)
+{
+    if (inst->getOp() == kIROp_Var && inst->findDecoration<IRGetAddressDecoration>())
+    {
+        for (auto use = inst->firstUse; use; use = use->nextUse)
+        {
+            auto user = use->getUser();
+            if (user->getOp() != kIROp_Store)
+                continue;
+            auto store = as<IRStore>(user);
+            if (store->getPtr() != inst)
+                continue;
+            auto storedVal = store->getVal();
+            if (storedVal->getOp() == kIROp_Var)
+            {
+                auto ptrType = as<IRPtrType>(storedVal->getDataType());
+                if (!ptrType || !ptrType->hasAddressSpace() ||
+                    ptrType->getAddressSpace() == AddressSpace::Function)
+                {
+                    sink->diagnose(inst->sourceLoc, Diagnostics::invalidAddressOf);
+                }
+            }
+        }
+    }
+
+    for (auto child : inst->getModifiableChildren())
+    {
+        validateGetAddressUsageRecursively(sink, child);
+    }
+}
+
+void validateGetAddressUsage(IRModule* module, DiagnosticSink* sink)
+{
+    validateGetAddressUsageRecursively(sink, module->getModuleInst());
+}
+
 } // namespace Slang

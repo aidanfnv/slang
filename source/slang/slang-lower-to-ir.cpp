@@ -4595,6 +4595,7 @@ struct ExprLoweringVisitorBase : public ExprVisitor<Derived, LoweredValInfo>
                 // non-pointer result.
                 auto irVar = context->irBuilder->emitVar(loweredType);
                 context->irBuilder->emitStore(irVar, ptr.val);
+                context->irBuilder->addDecoration(irVar, kIROp_GetAddressDecoration);
                 return LoweredValInfo::ptr(irVar);
             }
         default:

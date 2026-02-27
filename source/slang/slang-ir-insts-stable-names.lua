@@ -731,4 +731,5 @@ return {
 	["Type.MetalParameterBlockLayout"] = 729,
 	["Type.CUDALayout"] = 730,
 	["Type.LLVMLayout"] = 731,
+	["Decoration.GetAddressDecoration"] = 732,
 }

@@ -4470,6 +4470,14 @@ static PtrType* getValidTypeForAddressOf(
                     AddressSpace::GroupShared,
                     m_astBuilder->getDefaultLayoutType());
             }
+            else
+            {
+                return m_astBuilder->getPtrType(
+                    variableType,
+                    AccessQualifier::ReadWrite,
+                    AddressSpace::UserPointer,
+                    m_astBuilder->getDefaultLayoutType());
+            }
         }
     }
 
