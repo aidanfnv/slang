@@ -4490,6 +4490,16 @@ static PtrType* getValidTypeForAddressOf(
             }
             else
             {
+                // UserPointer is correct here even though this covers all
+                // remaining variables (including function-locals):
+                // - On GPU targets, the IR validation pass
+                //   (validateGetAddressUsage) rejects function-local addresses
+                //   before they reach codegen, so only device-memory variables
+                //   survive, for which UserPointer is semantically right.
+                // - On CPU/CUDA targets, address spaces are irrelevant (flat
+                //   memory), and downstream passes that special-case
+                //   UserPointer (addr-inst elimination, redundancy removal,
+                //   etc.) handle it conservatively/correctly.
                 return m_astBuilder->getPtrType(
                     variableType,
                     AccessQualifier::ReadWrite,
