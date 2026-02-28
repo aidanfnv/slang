@@ -799,6 +799,8 @@ static bool isFunctionLocalAddress(IRInst* val)
         case kIROp_Var:
             {
                 auto ptrType = as<IRPtrType>(root->getDataType());
+                // IRVar should always have an IRPtrType in well-formed IR;
+                // treat malformed cases as function-local to err on the side of safety.
                 return !ptrType || !ptrType->hasAddressSpace() ||
                        ptrType->getAddressSpace() == AddressSpace::Function;
             }
