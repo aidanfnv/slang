@@ -717,8 +717,7 @@ void WGSLSourceEmitter::emitLayoutQualifiersImpl(IRVarLayout* layout)
         if (kind == LayoutResourceKind::DescriptorTableSlot ||
             kind == LayoutResourceKind::ShaderResource ||
             kind == LayoutResourceKind::UnorderedAccess ||
-            kind == LayoutResourceKind::SamplerState ||
-            kind == LayoutResourceKind::ConstantBuffer)
+            kind == LayoutResourceKind::SamplerState || kind == LayoutResourceKind::ConstantBuffer)
         {
             m_writer->emit("@binding(");
             m_writer->emit(attr->getOffset());
