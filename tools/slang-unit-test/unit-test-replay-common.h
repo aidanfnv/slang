@@ -30,16 +30,7 @@ public:
 };
 
 
-// Replays tests can't run single threaded or they reset their own
-// streams so disable for first PR
-#define REPLAY_TEST                      \
-    if (ReplayContext::get().isActive()) \
-    {                                    \
-        SLANG_IGNORE_TEST;               \
-    }                                    \
-    ScopedReplayContext _scopedReplayContext;
-
-// #define REPLAY_TEST SLANG_IGNORE_TEST
+#define REPLAY_TEST ScopedReplayContext _scopedReplayContext;
 
 // =============================================================================
 // Helper: Round-trip test template
